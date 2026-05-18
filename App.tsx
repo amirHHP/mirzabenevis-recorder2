@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, SafeAreaView, TouchableOpacity, FlatList, TextInput, ScrollView, Alert, ActivityIndicator, I18nManager } from 'react-native';
 import { Audio } from 'expo-av';
-import { Mic, Square, Settings, ChevronRight, MessageSquare, Trash2, Check, FileText } from 'lucide-react-native';
+import { Mic, Square, Settings, ChevronRight, MessageSquare, Trash2, Check, FileText, ChevronDown } from 'lucide-react-native';
 import { getMeetings, saveMeeting, deleteMeeting } from './src/services/storage';
-import { getApiKey, setApiKey, transcribeAudio, askQuestionAboutTranscript } from './src/services/ai';
+import { getApiKey, setApiKey, getSelectedModel, setSelectedModel, fetchModels, transcribeAudio, askQuestionAboutTranscript, AIModel } from './src/services/ai';
 import { Meeting } from './src/types';
 
 // Force RTL layout for Farsi
@@ -15,6 +15,10 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<'HOME' | 'RECORDING' | 'DETAIL' | 'SETTINGS'>('HOME');
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const [models, setModels] = useState<AIModel[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [showModelPicker, setShowModelPicker] = useState(false);
 
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -27,7 +31,32 @@ export default function App() {
   useEffect(() => {
     loadMeetings();
     loadApiKey();
+    loadSelectedModel();
   }, []);
+
+  const loadSelectedModel = async () => {
+    const model = await getSelectedModel();
+    if (model) setSelectedModelId(model);
+  };
+
+  const handleFetchModels = async () => {
+    setIsLoadingModels(true);
+    try {
+      const fetchedModels = await fetchModels();
+      setModels(fetchedModels);
+      setShowModelPicker(true);
+    } catch (error: any) {
+      Alert.alert('خطا', 'دریافت لیست مدل‌ها ناموفق بود. API Key را بررسی کنید.');
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
+  const handleSelectModel = async (modelId: string) => {
+    await setSelectedModel(modelId);
+    setSelectedModelId(modelId);
+    setShowModelPicker(false);
+  };
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -321,17 +350,17 @@ export default function App() {
         <View style={{width: 28}} />
       </View>
       
-      <View style={styles.settingsContent}>
+      <ScrollView style={styles.settingsContent}>
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>ارتباط با هوش مصنوعی</Text>
+          <Text style={styles.sectionTitle}>ارتباط با هوش مصنوعی سُتون</Text>
           <Text style={styles.settingsDesc}>
-            اپلیکیشن میرزابنویس برای هوشمندسازی و پردازش متن از مدل Gemini استفاده می‌کند. لطفاً API Key خود را وارد کنید.
+            اپلیکیشن میرزابنویس از سرویس هوش مصنوعی سُتون استفاده می‌کند. API Key خود را وارد کنید و سپس مدل مورد نظر را انتخاب نمایید.
           </Text>
           
           <Text style={styles.label}>توکن دسترسی (API Key)</Text>
           <TextInput
             style={styles.settingsInput}
-            placeholder="AIzaSy..."
+            placeholder="sk-..."
             placeholderTextColor="#94a3b8"
             value={apiKeyInput}
             onChangeText={setApiKeyInput}
@@ -340,10 +369,63 @@ export default function App() {
           
           <TouchableOpacity style={styles.primaryBtn} onPress={handleSaveApiKey}>
             <Check color="#ffffff" size={20} style={{marginLeft: 8}} />
-            <Text style={styles.btnText}>ذخیره تنظیمات</Text>
+            <Text style={styles.btnText}>ذخیره API Key</Text>
           </TouchableOpacity>
         </View>
-      </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>انتخاب مدل</Text>
+          <Text style={styles.settingsDesc}>
+            ابتدا API Key را ذخیره کنید، سپس لیست مدل‌ها را دریافت و مدل دلخواه خود را انتخاب نمایید.
+          </Text>
+
+          {selectedModelId ? (
+            <View style={styles.selectedModelBox}>
+              <Text style={styles.selectedModelLabel}>مدل فعال:</Text>
+              <Text style={styles.selectedModelName}>{selectedModelId}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity 
+            style={[styles.primaryBtn, { backgroundColor: '#059669' }]} 
+            onPress={handleFetchModels} 
+            disabled={isLoadingModels}
+          >
+            {isLoadingModels ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <ChevronDown color="#ffffff" size={20} style={{marginLeft: 8}} />
+                <Text style={styles.btnText}>دریافت لیست مدل‌ها</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {showModelPicker && models.length > 0 ? (
+            <View style={styles.modelList}>
+              {models.map((model) => (
+                <TouchableOpacity
+                  key={model.id}
+                  style={[
+                    styles.modelItem,
+                    selectedModelId === model.id && styles.modelItemSelected,
+                  ]}
+                  onPress={() => handleSelectModel(model.id)}
+                >
+                  <View style={[
+                    styles.modelRadio,
+                    selectedModelId === model.id && styles.modelRadioSelected,
+                  ]} />
+                  <Text style={[
+                    styles.modelItemText,
+                    selectedModelId === model.id && styles.modelItemTextSelected,
+                  ]}>{model.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      </ScrollView>
     </View>
   );
 
@@ -416,4 +498,14 @@ const styles = StyleSheet.create({
   settingsDesc: { fontSize: 14, color: '#64748b', lineHeight: 22, marginBottom: 24, textAlign: 'left' },
   label: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 8, textAlign: 'left' },
   settingsInput: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, padding: 16, fontSize: 16, marginBottom: 24, color: '#0f172a', textAlign: 'left' },
+  selectedModelBox: { backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#a7f3d0', borderRadius: 12, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+  selectedModelLabel: { fontSize: 13, fontWeight: '600', color: '#059669', marginLeft: 8 },
+  selectedModelName: { fontSize: 14, fontWeight: '700', color: '#047857' },
+  modelList: { marginTop: 16 },
+  modelItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 14, marginBottom: 8 },
+  modelItemSelected: { backgroundColor: '#eff6ff', borderColor: '#3b82f6' },
+  modelRadio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#cbd5e1', marginLeft: 12 },
+  modelRadioSelected: { borderColor: '#3b82f6', backgroundColor: '#3b82f6' },
+  modelItemText: { fontSize: 14, color: '#475569', fontWeight: '500' },
+  modelItemTextSelected: { color: '#1e40af', fontWeight: '700' },
 });
